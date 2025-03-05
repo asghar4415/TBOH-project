@@ -1,15 +1,11 @@
 package com.example.thebridgeofhopes.ui.theme.screens
 
 import android.app.Activity
-import android.content.ContentValues
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -18,44 +14,52 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.toSize
+import androidx.compose.ui.unit.*
 import androidx.navigation.NavController
-import java.io.File
-import java.io.FileOutputStream
+import kotlinx.coroutines.delay
 
+
+data class Line(
+    val start: Offset,
+    val end: Offset,
+    val color: Color = Color.Black,
+    val strokeWidth: Dp = 3.dp
+)
+
+/**
+ * The main screen where the user traces the letter.
+ */
 @Composable
 fun LearningScreen(navController: NavController) {
     val context = LocalContext.current
     val activity = context as? Activity
 
-    // Set the screen orientation to landscape
+    // 1) Load the model once at startup
     LaunchedEffect(Unit) {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        AIModel.loadModel(context)  // <--- Load your TFLite model
     }
 
     var attemptsLeft by remember { mutableStateOf(5) }
     var score by remember { mutableStateOf(0) }
     val lines = remember { mutableStateListOf<Line>() }
-    var showDialog by remember { mutableStateOf(false) }
-    var savedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // For the final bitmap and a possible "score" or status
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    var showDialog by remember { mutableStateOf(false) }
+    var dialogScore by remember { mutableStateOf<Int?>(null) }
+    var showGameOverDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -67,8 +71,10 @@ fun LearningScreen(navController: NavController) {
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Top Row
             Row(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
                     .padding(10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -85,8 +91,10 @@ fun LearningScreen(navController: NavController) {
                 )
             }
 
+            // Score display
             Text(text = "Score: $score", fontSize = 24.sp, fontWeight = FontWeight.Bold)
 
+            // White box for tracing
             Box(
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
@@ -106,28 +114,45 @@ fun LearningScreen(navController: NavController) {
                     color = Color.Gray.copy(alpha = 0.3f)
                 )
 
-                // DrawingCanvas now fills the entire Box area
+                // Canvas for user drawing
                 DrawingCanvas(lines = lines, modifier = Modifier.matchParentSize())
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // Buttons
             Row {
+                // "Check" button
                 Button(onClick = {
                     if (lines.isNotEmpty() && boxSize.width > 0 && boxSize.height > 0) {
-                        // Create bitmap with same size as the white area
                         val bitmap = createBitmapFromLines(lines, boxSize)
-                        savedBitmap = bitmap
+                        val localScore = AIModel.evaluateDrawing(bitmap)
+
+                        score = localScore
+                        dialogScore = localScore
                         showDialog = true
                         attemptsLeft -= 1
                         lines.clear()
+
+                        // Show game-over dialog if lives reach zero
+                        if (attemptsLeft == 0) {
+                            showGameOverDialog = true
+                        }
                     }
                 }) {
                     Text(text = "Check")
                 }
 
+                if (showGameOverDialog) {
+                    GameOverDialog(onDismiss = {
+                        showGameOverDialog = false
+                        attemptsLeft = 5  // Reset lives (or navigate to a new screen)
+                    })
+                }
+
                 Spacer(modifier = Modifier.width(16.dp))
 
+                // "Clear Drawing" button
                 Button(onClick = {
                     lines.clear()
                 }) {
@@ -137,39 +162,37 @@ fun LearningScreen(navController: NavController) {
         }
     }
 
+    // Show a dialog with the result
     if (showDialog) {
-        SaveImageDialog(
-            bitmap = savedBitmap,
-            onDismiss = {
-                showDialog = false
-                savedBitmap = null
-            },
-            onImageSaved = {
-                saveBitmapToExternalStorage(context, it)
-            }
+        ScoreDialog(
+            score = dialogScore,
+            onDismiss = { showDialog = false }
         )
     }
 }
 
+/**
+ * The dialog that displays "Processing..." for 2 seconds,
+ * then shows the score from the model.
+ */
 @Composable
-fun SaveImageDialog(
-    bitmap: Bitmap?,
-    onDismiss: () -> Unit,
-    onImageSaved: (Bitmap) -> Unit
+fun ScoreDialog(
+    score: Int?,
+    onDismiss: () -> Unit
 ) {
-    if (bitmap == null) return
+    if (score == null) return
 
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(2000)
+        // Show "Processing..." for 2 seconds
+        delay(2000)
         isLoading = false
-        onImageSaved(bitmap)
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = "Saving Image") },
+        title = { Text("AI Model Evaluation") },
         text = {
             if (isLoading) {
                 Column(
@@ -182,7 +205,8 @@ fun SaveImageDialog(
                     Text("Processing...", fontSize = 16.sp)
                 }
             } else {
-                Text("Image saved successfully!")
+                // Show the final score
+                Text("Your score is: $score")
             }
         },
         confirmButton = {
@@ -195,13 +219,15 @@ fun SaveImageDialog(
     )
 }
 
+/**
+ * Canvas composable for user drawing input.
+ */
 @Composable
 fun DrawingCanvas(
     lines: MutableList<Line>,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
-    // Capture the canvas size from onGloballyPositioned
     var canvasSize by remember { mutableStateOf(Size.Zero) }
 
     Canvas(
@@ -215,6 +241,7 @@ fun DrawingCanvas(
                     val newStart = change.position - dragAmount
                     val newEnd = change.position
 
+                    // Restrict lines to the canvas boundaries
                     if (newStart.x in 0f..canvasSize.width &&
                         newStart.y in 0f..canvasSize.height &&
                         newEnd.x in 0f..canvasSize.width &&
@@ -243,11 +270,12 @@ fun DrawingCanvas(
     }
 }
 
+/**
+ * Convert the drawn lines to a Bitmap matching the size of the Box.
+ */
 fun createBitmapFromLines(lines: List<Line>, size: IntSize): Bitmap {
-
     val bitmap = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-
     canvas.drawColor(android.graphics.Color.WHITE)
 
     val paint = Paint().apply {
@@ -264,39 +292,39 @@ fun createBitmapFromLines(lines: List<Line>, size: IntSize): Bitmap {
     return bitmap
 }
 
-fun saveBitmapToExternalStorage(context: Context, bitmap: Bitmap) {
-    val filename = "traced_image_${System.currentTimeMillis()}.png"
-    try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val resolver = context.contentResolver
-            val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
-            }
-            val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-            imageUri?.let { uri ->
-                resolver.openOutputStream(uri)?.use { outputStream ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+@Composable
+fun GameOverDialog(onDismiss: () -> Unit) {
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        delay(2000)
+        isLoading = false
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Game Over!", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Red) },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("Processing...", fontSize = 16.sp)
+                } else {
+                    Text("😱 Oh my god! You have no lives left!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Red)
                 }
             }
-            Log.d("SaveImage", "Image saved successfully in external storage (MediaStore)")
-        } else {
-            val imagesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-            val image = File(imagesDir, filename)
-            FileOutputStream(image).use { fos ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos)
+        },
+        confirmButton = {
+            if (!isLoading) {
+                Button(onClick = onDismiss) {
+                    Text("Restart")
+                }
             }
-            Log.d("SaveImage", "Image saved successfully at: ${image.absolutePath}")
         }
-    } catch (e: Exception) {
-        Log.e("SaveImage", "Error saving image", e)
-    }
+    )
 }
-
-data class Line(
-    val start: Offset,
-    val end: Offset,
-    val color: Color = Color.Black,
-    val strokeWidth: Dp = 3.dp
-)

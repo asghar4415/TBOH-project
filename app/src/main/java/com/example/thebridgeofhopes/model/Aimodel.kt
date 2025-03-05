@@ -1,37 +1,31 @@
-package com.example.thebridgeofhopes.model
-
-
 import android.content.Context
 import android.graphics.Bitmap
 import org.tensorflow.lite.Interpreter
+import java.io.FileInputStream
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 object AIModel {
     private lateinit var interpreter: Interpreter
 
     fun loadModel(context: Context) {
-        val assetManager = context.assets
-        val modelFile = assetManager.open("CNNmodel.tflite").readBytes()
-        interpreter = Interpreter(ByteBuffer.allocateDirect(modelFile.size).apply {
-            order(ByteOrder.nativeOrder())
-            put(modelFile)
-        })
+        val modelFile = loadModelFile(context)
+        interpreter = Interpreter(modelFile)
+    }
+
+    private fun loadModelFile(context: Context): MappedByteBuffer {
+        val fileDescriptor = context.assets.openFd("CNNmodel.tflite")
+        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+        val fileChannel = inputStream.channel
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, fileDescriptor.startOffset, fileDescriptor.declaredLength)
     }
 
     fun evaluateDrawing(bitmap: Bitmap): Int {
-        val input = Bitmap.createScaledBitmap(bitmap, 28, 28, true) // Resize for CNN
-        val byteBuffer = ByteBuffer.allocateDirect(28 * 28 * 4).apply {
-            order(ByteOrder.nativeOrder())
-            for (y in 0 until 28) {
-                for (x in 0 until 28) {
-                    putFloat(input.getPixel(x, y).toFloat())
-                }
-            }
-        }
+        val inputBuffer: ByteBuffer = preprocessBitmap(bitmap)  // Use ByteBuffer directly
+        val outputArray = Array(1) { FloatArray(26) }  // Assuming 10 output classes
 
-        val output = Array(1) { FloatArray(1) }
-        interpreter.run(byteBuffer, output)
-        return (output[0][0] * 100).toInt() // Convert to percentage score
+        interpreter.run(inputBuffer, outputArray)
+        return outputArray[0].indices.maxByOrNull { outputArray[0][it] } ?: -1
     }
 }
