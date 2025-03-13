@@ -1,7 +1,6 @@
 package com.example.thebridgeofhopes.ui.theme.screens
 
 import android.app.Activity
-import android.content.Context
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -12,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
@@ -19,7 +20,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -30,151 +30,204 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.delay
 
 
+
+
 data class Line(
     val start: Offset,
     val end: Offset,
     val color: Color = Color.Black,
-    val strokeWidth: Dp = 3.dp
+    val strokeWidth: Dp = 5.dp
 )
 
-/**
- * The main screen where the user traces the letter.
- */
 @Composable
 fun LearningScreen(navController: NavController) {
     val context = LocalContext.current
     val activity = context as? Activity
 
-    // 1) Load the model once at startup
     LaunchedEffect(Unit) {
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        AIModel.loadModel(context)  // <--- Load your TFLite model
+        AIModel.loadModel(context)
     }
 
-    var attemptsLeft by remember { mutableStateOf(5) }
-    var score by remember { mutableStateOf(0) }
+    var attemptsLeft by remember { mutableIntStateOf(5) }
+    val score by remember { mutableIntStateOf(0) }
     val lines = remember { mutableStateListOf<Line>() }
-
-    // For the final bitmap and a possible "score" or status
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     var showDialog by remember { mutableStateOf(false) }
     var dialogScore by remember { mutableStateOf<Int?>(null) }
     var showGameOverDialog by remember { mutableStateOf(false) }
+    var selectedLetter by remember { mutableStateOf("A") }
+    var expanded by remember { mutableStateOf(false) }
+    var predictions by remember { mutableStateOf<List<Pair<Char, Float>>>(emptyList()) }
+    var predictionsExpanded by remember { mutableStateOf(false) }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFFFE0E0))
-            .padding(16.dp)
+            .background(Color(0xFF99D993))
+            .padding(vertical = 24.dp, horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .padding(10.dp)
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Top Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                IconButton(onClick = {
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    navController.popBackStack()
-                }) {
-                    Text("❌", fontSize = 24.sp)
-                }
-                Text(
-                    text = "❤️ $attemptsLeft",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+            IconButton(onClick = {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                navController.popBackStack()
+            }) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color(0xFF4A5A7F),
+                    modifier = Modifier.size(32.dp)
                 )
             }
 
-            // Score display
-            Text(text = "Score: $score", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "❤️ $attemptsLeft",
+                fontSize = 22.sp,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
-            // White box for tracing
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.7f)
-                    .fillMaxHeight(0.8f)
-                    .background(Color.White, shape = RoundedCornerShape(16.dp))
-                    .padding(16.dp)
-                    .onGloballyPositioned { coordinates ->
-                        boxSize = coordinates.size
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                // The underlying alphabet text
-                Text(
-                    text = "A",
-                    fontSize = 140.sp,
-                    fontWeight = FontWeight.Light,
-                    color = Color.Gray.copy(alpha = 0.3f)
-                )
+        Spacer(modifier = Modifier.height(40.dp))
 
-                // Canvas for user drawing
-                DrawingCanvas(lines = lines, modifier = Modifier.matchParentSize())
-            }
+        Text(
+            text = "Letter: $selectedLetter , Score: $score",
+            fontSize = 24.sp,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
 
-            Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-            // Buttons
-            Row {
-                // "Check" button
-                Button(onClick = {
-                    if (lines.isNotEmpty() && boxSize.width > 0 && boxSize.height > 0) {
-                        val bitmap = createBitmapFromLines(lines, boxSize)
-                        val localScore = AIModel.evaluateDrawing(bitmap)
+        Button(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B9867))
+        ) {
+            Text(selectedLetter, fontSize = 22.sp, color = Color.White)
+        }
 
-                        score = localScore
-                        dialogScore = localScore
-                        showDialog = true
-                        attemptsLeft -= 1
-                        lines.clear()
-
-                        // Show game-over dialog if lives reach zero
-                        if (attemptsLeft == 0) {
-                            showGameOverDialog = true
-                        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(Color.White)
+        ) {
+            ('A'..'Z').forEach { letter ->
+                DropdownMenuItem(
+                    text = { Text(letter.toString(), fontSize = 18.sp, color = Color.Black) },
+                    onClick = {
+                        selectedLetter = letter.toString()
+                        expanded = false
                     }
-                }) {
-                    Text(text = "Check")
-                }
-
-                if (showGameOverDialog) {
-                    GameOverDialog(onDismiss = {
-                        showGameOverDialog = false
-                        attemptsLeft = 5  // Reset lives (or navigate to a new screen)
-                    })
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                // "Clear Drawing" button
-                Button(onClick = {
-                    lines.clear()
-                }) {
-                    Text(text = "Clear Drawing")
-                }
+                )
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .aspectRatio(1f)
+                .background(Color.White, shape = RoundedCornerShape(16.dp))
+                .padding(16.dp)
+                .onGloballyPositioned { coordinates -> boxSize = coordinates.size },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = selectedLetter,
+                fontSize = 160.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray.copy(alpha = 0.3f)
+            )
+            DrawingCanvas(lines = lines, modifier = Modifier.matchParentSize())
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Button(
+                onClick = {
+                    if (lines.isNotEmpty() && boxSize.width > 0 && boxSize.height > 0) {
+                        val bitmap = createBitmapFromLines(lines, boxSize)
+                        predictions = AIModel.evaluateDrawing(context, bitmap)
+                        dialogScore = predictions.find { it.first.toString() == selectedLetter }?.second?.toInt() ?: 0
+                        showDialog = true
+                        attemptsLeft--
+                        lines.clear()
+                        if (attemptsLeft == 0) {
+                            showGameOverDialog = true
+                            showDialog = false
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B9867))
+            ) {
+                Text(text = "Check", fontSize = 18.sp, color = Color.White)
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Button(
+                onClick = { lines.clear() },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B9867))
+            ) {
+                Text(text = "Clear", fontSize = 18.sp, color = Color.White)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(30.dp))
+
+        // Dropdown to show AI predictions
+        Button(
+            onClick = { predictionsExpanded = true },
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B9867))
+        ) {
+            Text("View Predictions", fontSize = 18.sp, color = Color.White)
+        }
+
+        DropdownMenu(
+            expanded = predictionsExpanded,
+            onDismissRequest = { predictionsExpanded = false },
+            modifier = Modifier.background(Color.White)
+        ) {
+            predictions.forEach { (letter, score) ->
+                DropdownMenuItem(
+                    text = { Text("$letter: ${score.toInt()}", fontSize = 18.sp, color = Color.Black) },
+                    onClick = { predictionsExpanded = false }
+                )
+            }
+        }
+
+}
+
+    if (showDialog && !showGameOverDialog) {
+        ScoreDialog(score = dialogScore, onDismiss = { showDialog = false })
     }
 
-    // Show a dialog with the result
-    if (showDialog) {
-        ScoreDialog(
-            score = dialogScore,
-            onDismiss = { showDialog = false }
-        )
+
+    if (showGameOverDialog) {
+        GameOverDialog(onDismiss = {
+            showGameOverDialog = false
+            attemptsLeft = 5
+        })
     }
 }
 
-/**
- * The dialog that displays "Processing..." for 2 seconds,
- * then shows the score from the model.
- */
 @Composable
 fun ScoreDialog(
     score: Int?,
@@ -185,14 +238,20 @@ fun ScoreDialog(
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        // Show "Processing..." for 2 seconds
         delay(2000)
         isLoading = false
     }
 
+    val resultText = when (score) {
+        in 0..20 -> "Bad"
+        in 21..50 -> "Good"
+        in 51..75 -> "Better"
+        else -> "Best"
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("AI Model Evaluation") },
+        title = { Text("Checking Result: ") },
         text = {
             if (isLoading) {
                 Column(
@@ -205,8 +264,7 @@ fun ScoreDialog(
                     Text("Processing...", fontSize = 16.sp)
                 }
             } else {
-                // Show the final score
-                Text("Your score is: $score")
+                Text("Your drawing is: $resultText")
             }
         },
         confirmButton = {
@@ -251,7 +309,7 @@ fun DrawingCanvas(
                             Line(
                                 start = newStart,
                                 end = newEnd,
-                                strokeWidth = 3.dp
+                                strokeWidth = 5.dp
                             )
                         )
                     }
@@ -280,7 +338,7 @@ fun createBitmapFromLines(lines: List<Line>, size: IntSize): Bitmap {
 
     val paint = Paint().apply {
         color = android.graphics.Color.BLACK
-        strokeWidth = 10f
+        strokeWidth = 15f
         isAntiAlias = true
         style = Paint.Style.STROKE
     }
@@ -315,7 +373,7 @@ fun GameOverDialog(onDismiss: () -> Unit) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text("Processing...", fontSize = 16.sp)
                 } else {
-                    Text("😱 Oh my god! You have no lives left!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                    Text("Oh my god! You have no lives left!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Red)
                 }
             }
         },
