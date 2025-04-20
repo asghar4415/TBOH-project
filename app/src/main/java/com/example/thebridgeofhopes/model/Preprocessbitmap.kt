@@ -4,8 +4,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.max
 
-
-
 fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
     val inputSize = 28  // Model input size
 
@@ -24,16 +22,13 @@ fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
     // Step 5: Crop to content
     val croppedBitmap = cropToContent(thresholdBitmap)
 
-    // Step 6: Pad to square
-    val paddedBitmap = padToSquare(croppedBitmap)
+    // Step 6: Scale and pad to 28x28
+    val scaledPaddedBitmap = scaleAndPadTo28x28(croppedBitmap)
 
-    // Step 7: Resize to intermediate sizes (256, 64, 28)
-    val resizedBitmap = Bitmap.createScaledBitmap(paddedBitmap, inputSize, inputSize, true)
+    // Step 7: Apply Dilation
+    val dilatedBitmap = applyDilation(scaledPaddedBitmap)
 
-    // Step 8: Apply Dilation
-    val dilatedBitmap = applyDilation(resizedBitmap)
-
-    // Step 9: Prepare ByteBuffer for model input
+    // Step 8: Prepare ByteBuffer for model input
     val byteBuffer = ByteBuffer.allocateDirect(4 * inputSize * inputSize)
     byteBuffer.order(ByteOrder.nativeOrder())
 
@@ -47,6 +42,33 @@ fun preprocessBitmap(bitmap: Bitmap): ByteBuffer {
     }
 
     return byteBuffer
+}
+
+// Scale and pad image to 28x28 while preserving aspect ratio
+fun scaleAndPadTo28x28(bitmap: Bitmap, targetSize: Int = 28, scaledMaxSide: Int = 24): Bitmap {
+    // Step 1: Resize keeping aspect ratio
+    val originalWidth = bitmap.width
+    val originalHeight = bitmap.height
+    val maxSide = max(originalWidth, originalHeight)
+    val scaleFactor = scaledMaxSide.toFloat() / maxSide.toFloat()
+    val newWidth = (originalWidth * scaleFactor).toInt()
+    val newHeight = (originalHeight * scaleFactor).toInt()
+
+    val scaledBitmap = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+
+    // Step 2: Pad to targetSize x targetSize
+    val paddedBitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(paddedBitmap)
+    canvas.drawColor(Color.BLACK) // Fill with black
+
+    // Calculate padding offsets
+    val left = (targetSize - newWidth) / 2
+    val top = (targetSize - newHeight) / 2
+
+    // Draw the scaled bitmap centered
+    canvas.drawBitmap(scaledBitmap, left.toFloat(), top.toFloat(), null)
+
+    return paddedBitmap
 }
 
 // Convert image to grayscale
@@ -128,18 +150,6 @@ fun cropToContent(bitmap: Bitmap): Bitmap {
     } else {
         bitmap
     }
-}
-
-// Pad Image to Square
-fun padToSquare(bitmap: Bitmap): Bitmap {
-    val size = max(bitmap.width, bitmap.height)
-    val paddedBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(paddedBitmap)
-    canvas.drawColor(Color.BLACK)
-    val xOffset = (size - bitmap.width) / 2
-    val yOffset = (size - bitmap.height) / 2
-    canvas.drawBitmap(bitmap, xOffset.toFloat(), yOffset.toFloat(), null)
-    return paddedBitmap
 }
 
 // Apply Dilation
