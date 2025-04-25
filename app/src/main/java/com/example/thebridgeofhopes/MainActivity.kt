@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.thebridgeofhopes.ui.theme.ThebridgeofhopesTheme
+import com.example.thebridgeofhopes.ui.theme.screens.DigitsLearn
 import com.example.thebridgeofhopes.ui.theme.screens.LearningScreen
 import com.example.thebridgeofhopes.ui.theme.screens.HomeScreen
 
@@ -43,6 +44,7 @@ fun AppNavigation(navController: NavHostController) {
     NavHost(navController = navController, startDestination = "home") {
         composable("home") { HomeScreen(navController) }
         composable("learn") { LearningScreen(navController) }
+        composable("digits") { DigitsLearn(navController) }
     }
 }
 

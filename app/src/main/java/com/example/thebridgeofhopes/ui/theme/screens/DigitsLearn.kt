@@ -32,20 +32,14 @@ import kotlinx.coroutines.delay
 
 
 
-data class Line(
-    val start: Offset,
-    val end: Offset,
-    val color: Color = Color.Black,
-    val strokeWidth: Dp = 5.dp
-)
 
 @Composable
-fun LearningScreen(navController: NavController) {
+fun DigitsLearn(navController: NavController) {
     val context = LocalContext.current
     val activity = context as? Activity
 
     LaunchedEffect(Unit) {
-        AIModel.loadModel1(context)
+        AIModel.loadModel2(context)
     }
 
     var attemptsLeft by remember { mutableIntStateOf(5) }
@@ -55,7 +49,7 @@ fun LearningScreen(navController: NavController) {
     var showDialog by remember { mutableStateOf(false) }
     var dialogScore by remember { mutableStateOf<Int?>(null) }
     var showGameOverDialog by remember { mutableStateOf(false) }
-    var selectedLetter by remember { mutableStateOf("A") }
+    var selectedDigit by remember { mutableStateOf("0") } // Changed from selectedLetter
     var expanded by remember { mutableStateOf(false) }
     var predictions by remember { mutableStateOf<List<Pair<Char, Float>>>(emptyList()) }
     var predictionsExpanded by remember { mutableStateOf(false) }
@@ -96,8 +90,9 @@ fun LearningScreen(navController: NavController) {
 
         Spacer(modifier = Modifier.height(40.dp))
 
+        // Changed text to reference digits instead of letters
         Text(
-            text = "Letter: $selectedLetter , Score: $score",
+            text = "Digit: $selectedDigit, Score: $score",
             fontSize = 24.sp,
             color = Color.White,
             fontWeight = FontWeight.Bold
@@ -110,7 +105,7 @@ fun LearningScreen(navController: NavController) {
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B9867))
         ) {
-            Text(selectedLetter, fontSize = 22.sp, color = Color.White)
+            Text(selectedDigit, fontSize = 22.sp, color = Color.White)
         }
 
         DropdownMenu(
@@ -118,11 +113,12 @@ fun LearningScreen(navController: NavController) {
             onDismissRequest = { expanded = false },
             modifier = Modifier.background(Color.White)
         ) {
-            ('A'..'Z').forEach { letter ->
+            // Changed to show digits 0-9 instead of letters
+            ('0'..'9').forEach { digit ->
                 DropdownMenuItem(
-                    text = { Text(letter.toString(), fontSize = 18.sp, color = Color.Black) },
+                    text = { Text(digit.toString(), fontSize = 18.sp, color = Color.Black) },
                     onClick = {
-                        selectedLetter = letter.toString()
+                        selectedDigit = digit.toString()
                         expanded = false
                     }
                 )
@@ -141,7 +137,7 @@ fun LearningScreen(navController: NavController) {
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = selectedLetter,
+                text = selectedDigit,
                 fontSize = 160.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Gray.copy(alpha = 0.3f)
@@ -159,8 +155,10 @@ fun LearningScreen(navController: NavController) {
                 onClick = {
                     if (lines.isNotEmpty() && boxSize.width > 0 && boxSize.height > 0) {
                         val bitmap = createBitmapFromLines(lines, boxSize)
-                        predictions = AIModel.evaluateDrawing1(context, bitmap)
-                        dialogScore = predictions.find { it.first.toString() == selectedLetter }?.second?.toInt() ?: 0
+
+                        predictions = AIModel.evaluateDrawing2(context, bitmap)
+                        Log.d("predictions", predictions.toString())
+                        dialogScore = predictions.find { it.first.toString() == selectedDigit }?.second?.toInt() ?: 0
                         showDialog = true
                         attemptsLeft--
                         lines.clear()
@@ -205,20 +203,26 @@ fun LearningScreen(navController: NavController) {
             onDismissRequest = { predictionsExpanded = false },
             modifier = Modifier.background(Color.White)
         ) {
-            predictions.forEach { (letter, score) ->
+            // Sort predictions by digit (0-9) before displaying
+            predictions.sortedBy { it.first }.forEach { (digit, score) ->
                 DropdownMenuItem(
-                    text = { Text("$letter: ${score.toInt()}", fontSize = 18.sp, color = Color.Black) },
+                    text = {
+                        Text(
+                            "$digit: ${score.toInt()}",
+                            fontSize = 18.sp,
+                            color = Color.Black,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
                     onClick = { predictionsExpanded = false }
                 )
             }
         }
-
-}
+    }
 
     if (showDialog && !showGameOverDialog) {
         ScoreDialog(score = dialogScore, onDismiss = { showDialog = false })
     }
-
 
     if (showGameOverDialog) {
         GameOverDialog(onDismiss = {
@@ -226,163 +230,4 @@ fun LearningScreen(navController: NavController) {
             attemptsLeft = 5
         })
     }
-}
-
-@Composable
-fun ScoreDialog(
-    score: Int?,
-    onDismiss: () -> Unit
-) {
-    if (score == null) return
-
-    var isLoading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) {
-        delay(2000)
-        isLoading = false
-    }
-
-    val resultText = when (score) {
-        in 0..20 -> "Bad"
-        in 21..50 -> "Good"
-        in 51..75 -> "Better"
-        else -> "Best"
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Checking Result: ") },
-        text = {
-            if (isLoading) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("Processing...", fontSize = 16.sp)
-                }
-            } else {
-                Text("Your drawing is: $resultText")
-            }
-        },
-        confirmButton = {
-            if (!isLoading) {
-                Button(onClick = onDismiss) {
-                    Text("OK")
-                }
-            }
-        }
-    )
-}
-
-/**
- * Canvas composable for user drawing input.
- */
-@Composable
-fun DrawingCanvas(
-    lines: MutableList<Line>,
-    modifier: Modifier = Modifier
-) {
-    val density = LocalDensity.current
-    var canvasSize by remember { mutableStateOf(Size.Zero) }
-
-    Canvas(
-        modifier = modifier
-            .onGloballyPositioned { coordinates ->
-                canvasSize = coordinates.size.toSize()
-            }
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    val newStart = change.position - dragAmount
-                    val newEnd = change.position
-
-                    // Restrict lines to the canvas boundaries
-                    if (newStart.x in 0f..canvasSize.width &&
-                        newStart.y in 0f..canvasSize.height &&
-                        newEnd.x in 0f..canvasSize.width &&
-                        newEnd.y in 0f..canvasSize.height
-                    ) {
-                        lines.add(
-                            Line(
-                                start = newStart,
-                                end = newEnd,
-                                strokeWidth = 5.dp
-                            )
-                        )
-                    }
-                }
-            }
-    ) {
-        lines.forEach { line ->
-            drawLine(
-                color = line.color,
-                start = line.start,
-                end = line.end,
-                strokeWidth = with(density) { line.strokeWidth.toPx() },
-                cap = StrokeCap.Round
-            )
-        }
-    }
-}
-
-/**
- * Convert the drawn lines to a Bitmap matching the size of the Box.
- */
-fun createBitmapFromLines(lines: List<Line>, size: IntSize): Bitmap {
-    val bitmap = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    canvas.drawColor(android.graphics.Color.WHITE)
-
-    val paint = Paint().apply {
-        color = android.graphics.Color.BLACK
-        strokeWidth = 15f
-        isAntiAlias = true
-        style = Paint.Style.STROKE
-    }
-
-    lines.forEach { line ->
-        canvas.drawLine(line.start.x, line.start.y, line.end.x, line.end.y, paint)
-    }
-
-    return bitmap
-}
-
-@Composable
-fun GameOverDialog(onDismiss: () -> Unit) {
-    var isLoading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) {
-        delay(2000)
-        isLoading = false
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Game Over!", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Red) },
-        text = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("Processing...", fontSize = 16.sp)
-                } else {
-                    Text("Oh my god! You have no lives left!", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Red)
-                }
-            }
-        },
-        confirmButton = {
-            if (!isLoading) {
-                Button(onClick = onDismiss) {
-                    Text("Restart")
-                }
-            }
-        }
-    )
 }

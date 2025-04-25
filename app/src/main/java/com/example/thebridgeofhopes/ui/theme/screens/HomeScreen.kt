@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -29,19 +30,6 @@ import com.example.thebridgeofhopes.R
 
 @Composable
 fun HomeScreen(navController: NavController) {
-    var isClicked by remember { mutableStateOf(false) }
-    var isHovered by remember { mutableStateOf(false) }
-
-    val scale by animateFloatAsState(
-        targetValue = if (isClicked) 1.1f else 1f,
-        animationSpec = tween(durationMillis = 200), label = ""
-    )
-
-    val buttonColor by animateColorAsState(
-        targetValue = if (isHovered) Color(0xFF5EA34A) else Color(0xFF6BBF59),
-        animationSpec = tween(durationMillis = 200), label = ""
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -86,31 +74,97 @@ fun HomeScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(70.dp))
 
+            Text(
+                text = "Let's Start Learning",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Digits Button
+            val (digitsClicked, onDigitsClick) = remember { mutableStateOf(false) }
+            val digitsScale by animateFloatAsState(
+                targetValue = if (digitsClicked) 1.1f else 1f,
+                animationSpec = tween(durationMillis = 200),
+                label = "digitsScale"
+            )
+            val (digitsHovered, onDigitsHover) = remember { mutableStateOf(false) }
+            val digitsColor by animateColorAsState(
+                targetValue = if (digitsHovered) Color(0xFF5EA34A) else Color(0xFF6BBF59),
+                animationSpec = tween(durationMillis = 200),
+                label = "digitsColor"
+            )
+
             Button(
                 onClick = {
-                    isClicked = true
-                    navController?.navigate("learn")
+                    onDigitsClick(true)
+                    navController.navigate("digits")
                 },
                 modifier = Modifier
-                    .scale(scale)
-                    .padding(horizontal = 20.dp)
+                    .scale(digitsScale)
+                    .width(200.dp)
+                    .height(50.dp)
                     .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                isHovered = event.changes.any { it.pressed }
-                            }
-                        }
+                        detectTapGestures(
+                            onPress = { onDigitsHover(true) },
+                            onTap = { onDigitsHover(false) }
+                        )
                     },
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = buttonColor,
+                    containerColor = digitsColor,
                     contentColor = Color.White
                 )
             ) {
                 Text(
-                    text = "Let's Start Learning",
-                    fontSize = 20.sp,
+                    text = "Digits",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Alphabets Button
+            val (alphabetsClicked, onAlphabetsClick) = remember { mutableStateOf(false) }
+            val alphabetsScale by animateFloatAsState(
+                targetValue = if (alphabetsClicked) 1.1f else 1f,
+                animationSpec = tween(durationMillis = 200),
+                label = "alphabetsScale"
+            )
+            val (alphabetsHovered, onAlphabetsHover) = remember { mutableStateOf(false) }
+            val alphabetsColor by animateColorAsState(
+                targetValue = if (alphabetsHovered) Color(0xFF5EA34A) else Color(0xFF6BBF59),
+                animationSpec = tween(durationMillis = 200),
+                label = "alphabetsColor"
+            )
+
+            Button(
+                onClick = {
+                    onAlphabetsClick(true)
+                    navController.navigate("learn")
+                },
+                modifier = Modifier
+                    .scale(alphabetsScale)
+                    .width(200.dp)
+                    .height(50.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = { onAlphabetsHover(true) },
+                            onTap = { onAlphabetsHover(false) }
+                        )
+                    },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = alphabetsColor,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    text = "Alphabets",
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
